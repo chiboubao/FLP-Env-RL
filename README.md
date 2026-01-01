@@ -1,4 +1,4 @@
-# RL-FLP: Custom Reinforcement Learning Environment
+# RL-FLP: Custom Gym-like Facility Layout Problem Environment
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![Python](https://img.shields.io/badge/python-3.8%2B-green)
