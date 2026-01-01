@@ -44,7 +44,7 @@ Each workstation is represented as a node in a graph. Nodes are associated with 
 The layout is modeled using **NetworkX**:
 1. **Numbered Nodes**: Represent the physical sites to host workstations.
 2. **P and D Nodes**: Represent the physical workstations where P is where product are collected and D is where products are delivered
-3. **Edge**: Represent the spacial relationships, distance, between the nodes it connects.
+3. **Edges**: Represent the spacial relationships (distances) between the nodes they connect.
 
 [//]: # (4. **Self-loops**: Automatically added to the adjacency matrix to preserve node identity during graph convolutions.)
 
