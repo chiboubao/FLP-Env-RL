@@ -38,7 +38,7 @@ Each workstation is represented as a node in a graph. Nodes are associated with 
 * **Pickup location** $(x, y)$
 * **Delivery location** $(x, y)$
 
-![Environment Design](./Layout instances.png)
+![Environment Design](./Layout%20instances.png)
 
 ### Graph Representation
 The layout is modeled using **NetworkX**:
