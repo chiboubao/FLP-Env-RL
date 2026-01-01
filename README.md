@@ -11,7 +11,9 @@
 
 The implementation is **generic and extensible**, supporting:
 * **Static FLPs**: Optimization for a single period where material flow and demand are constant and known.
-* **Dynamic FLPs**: Optimization across multiple periods where material flow changes, requiring layout reconfigurations to maintain efficiency.
+* **Dynamic FLPs**: Optimization across multiple periods where material flow changes, requiring layout reconfigurations to maintain efficiency:
+  * Weak-form Dynamic FLP (Weak DFLP): Layouts are reconfigurable over time at predefined planning intervals (horizons). Demand changes are expected, and configuration generation is triggered at the start of each new horizon.
+  * Strong-form Dynamic FLP (Strong DFLP): A fully dynamic temporal structure where layout reconfigurations can occur both between horizons and within a horizon at the period level (e.g., daily). This ensures maximal responsiveness to immediate demand fluctuations.
 * **Stochastic FLPs**: Optimization where material flows are uncertain and modelled with a probability distribution.
 
 The environment’s goal is to build a robust, stable, and mature framework for training agents to minimize material handling costs and maximize layout efficiency for every type of FLPs
