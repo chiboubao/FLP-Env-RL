@@ -100,6 +100,9 @@ git clone [https://github.com/chiboubao/FLP-Env-RL.git](https://github.com/chibo
 # Navigate to the folder
 cd FLP-Env-RL
 
+# Install dependencies: It is recommended to use a virtual environment. You can install all project-specific requirements generated from this project using:
+pip install -r requirements.txt
+
 # Install dependencies
 pip install tensorflow numpy networkx gym
 
