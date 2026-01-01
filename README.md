@@ -45,7 +45,8 @@ The layout is modeled using **NetworkX**:
 1. **Numbered Nodes**: Represent the physical sites to host workstations.
 2. **P and D Nodes**: Represent the physical workstations where P is where product are collected and D is where products are delivered
 3. **Edges**: Represent relationships, interactions, or material flow between machines.
-4. **Self-loops**: Automatically added to the adjacency matrix to preserve node identity during graph convolutions.
+
+[//]: # (4. **Self-loops**: Automatically added to the adjacency matrix to preserve node identity during graph convolutions.)
 
 ---
 
