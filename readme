@@ -112,20 +112,3 @@ pip install tensorflow numpy networkx gym
 
 This project is licensed under the Apache-2.0 License - see the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
 
-```
-
----
-
-### How to apply this change:
-1. Copy the code block above.
-2. In **PyCharm**, open your `README.md` file.
-3. Delete everything inside and paste this new content.
-4. Open your **Terminal** and run these commands to update GitHub:
-   ```bash
-   git add README.md
-   git commit -m "Finalize professional README with GCN architecture details"
-   git push
-
-```
-
-**Would you like me to help you generate a `requirements.txt` file based on your imports so that other users can install your project easily?**
