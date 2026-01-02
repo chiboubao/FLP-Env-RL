@@ -70,7 +70,7 @@ The actions serve as tools for the RL agent to explore the environment, aiming t
 
 * **Workstation Shapes** $\mathcal{A}_{shape} = \{U\text{-}shape, U'\text{-}shape, L\text{-}shape, L'\text{-}shape, I\text{-}shape\}$: focuses on relocating the pickup and drop-off nodes without altering the blue reference node.
 * **Reorientation** $\mathcal{A}_{reorientation} = \{+90^{\circ}, -90^{\circ}\}$: involves changing the orientation, leading to a shift in reference node, by a rotation of $90^{\circ}$ in the clockwise (counter-clockwise) direction.
-* **Reimplantation** $\mathcal{A}_{reimplantation} = \{change_{implantation}\}$: switches two randomly selected workstations.
+* **Reimplantation** $\mathcal{A}_{\text{implantation}} = \{\text{change}_{\text{implantation}}\}$: switches two randomly selected workstations.
 
 ![Workstation Shapes and Orientations](./Actions.png)
 ---
