@@ -66,13 +66,13 @@ The environment uses a specialized spatial processing pipeline to encode the lay
 
 ## Action Space
 
-The actions serve as tools for the RL agent to explore the environment, aiming to modify the pickup and drop-off nodes of workstations. The action space labelled \(\mathcal{A}\) encompasses three types of actions. \(\mathcal{A}_{\text {shape }}=\{\text{U-shape}, \text{U'-shape}, \text{L-shape}, \text{L'-shape}, \text{I-shape}\}\) focuses on relocating the pickup and drop-off nodes without altering the blue reference node as shown in Fig. workstation_shapes_orientations. \(\mathcal{A}_{\text {reorientation }}=\left\{+90^{\circ},-90^{\circ}\right\}\) involves changing the orientation, leading to a shift in reference node, by a rotation of \(90^{\circ}\) in the clockwise (counter-clockwise) direction as shown in Fig. workstation_shapes_orientations. \(\mathcal{A}_{\text {reimplantation }} = \{\text{change}_{\text {implantation }}\}\) switches two randomly selected workstations.
+The actions serve as tools for the RL agent to explore the environment, aiming to modify the pickup and drop-off nodes of workstations. The action space labelled $\mathcal{A}$ encompasses three types of actions. $\mathcal{A}_{\text {shape }}=\{\text{U-shape}, \text{U'-shape}, \text{L-shape}, \text{L'-shape}, \text{I-shape}\}$ focuses on relocating the pickup and drop-off nodes without altering the blue reference node as shown in Fig. workstation_shapes_orientations. $\mathcal{A}_{\text {reorientation }}=\left\{+90^{\circ},-90^{\circ}\right\}$ involves changing the orientation, leading to a shift in reference node, by a rotation of $90^{\circ}$ in the clockwise (counter-clockwise) direction as shown in Fig. workstation_shapes_orientations. $\mathcal{A}_{\text {reimplantation }} = \{\text{change}_{\text {implantation }}\}$ switches two randomly selected workstations. 
 ![Environment Design](./Actions.png)
 ---
 
 ## Reward
 
-The reward function guides the agent toward actions that improve configuration. It penalizes choices that increase transportation costs and rewards those that reduce them, as shown in the following function \( R_t(s_t, a_t) \):
+The reward function guides the agent toward actions that improve configuration. It penalizes choices that increase transportation costs and rewards those that reduce them, as shown in the following function $$R_t(s_t, a_t) $$:
 
 $$
 R_t(s_t, a_t) = \begin{cases}
