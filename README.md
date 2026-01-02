@@ -72,7 +72,7 @@ The actions serve as tools for the RL agent to explore the environment, aiming t
 * **Reorientation** $\mathcal{A}_{reorientation} = \{+90^{\circ}, -90^{\circ}\}$: involves changing the orientation, leading to a shift in reference node, by a rotation of $90^{\circ}$ in the clockwise (counter-clockwise) direction.
 * **Reimplantation** $\mathcal{A}_{reimplantation} = \{change_{implantation}\}$: switches two randomly selected workstations.
 
-![Workstation Shapes and Orientations](./Layout%20instances.png)
+![Workstation Shapes and Orientations](./Actions.png)
 ---
 
 ## Reward
