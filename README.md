@@ -70,9 +70,17 @@ The actions serve as tools for the RL agent to explore the environment, aiming t
 
 * **Workstation Shapes** $\mathcal{A}_{shape} = \{U\text{-}shape, U'\text{-}shape, L\text{-}shape, L'\text{-}shape, I\text{-}shape\}$: focuses on relocating the pickup and drop-off nodes without altering the blue reference node.
 * **Reorientation** $\mathcal{A}_{reorientation} = \{+90^{\circ}, -90^{\circ}\}$: involves changing the orientation, leading to a shift in reference node, by a rotation of $90^{\circ}$ in the clockwise (counter-clockwise) direction.
-* **Reimplantation** $\mathcal{A}_{reimplantation}$: switches two randomly selected workstations.
+* **Reimplantation** $\mathcal{A}_{reimplantation}$: swaps the sites of any two workstations $m \neq n$ (one action per unordered pair, i.e. $N(N-1)/2$ actions). Each workstation keeps its shape and orientation.
+
+The rotation actions keep the current shape of the workstation. The total number of actions is $7N + N(N-1)/2$ (34 for 4 workstations, 99 for 9, 232 for 16).
+
+An action that would place two P/D points on the same spot (two workstations using the same point of a shared aisle) is cancelled: the layout does not change and the agent receives `invalid_action_reward` (default -1).
 
 ![Workstation Shapes and Orientations](./Actions.png)
+
+## Canonical layouts (state-space reduction)
+
+Rotating or mirroring the whole workshop (the 8 symmetries of the square grid) maps sites onto sites and keeps every shortest-path distance. Because the demand is attached to workstation IDs, a layout and its 8 images always have the **same cost**. With `canonical=True` (the default), the environment replaces every layout, at reset and after each step, by its canonical representative: the image with the lexicographically smallest encoding. The agent therefore sees only one state per equivalence class, which divides the state space by up to 8. See `Environment_FLP/canonical.py`; `tests/test_env.py` checks that the cost really is identical on all 8 images.
 ---
 
 ## Reward

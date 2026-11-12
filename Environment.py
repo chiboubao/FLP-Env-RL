@@ -1,6 +1,8 @@
 import random
 import time
 import json
+from itertools import combinations
+
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -10,6 +12,7 @@ from Environment_FLP.plotting import plotting_interactive
 from Environment_FLP.Actions import action
 from Environment_FLP.Configuration_cost import cost
 from Environment_FLP.graph_corrector import corrector
+from Environment_FLP.canonical import LayoutGeometry
 
 
 def convert_keys_to_integers(d):
@@ -17,16 +20,35 @@ def convert_keys_to_integers(d):
 
 
 class Env:
-    def __init__(self, number_of_machines, trial_length, trial_length_max, reward, transportation_demands, render):
+    """
+    State vector layout (unchanged): [reference node of machine 1..N, site index of machine 1..N, 1]
+
+    Parameters added on top of the original ones:
+        canonical:  if True, after every step (and at reset) the layout is replaced by its canonical
+                    representative under the rotations/mirrors of the workshop grid. The cost is
+                    identical, but the agent only ever sees one state per equivalence class.
+        reward_bounds: (min_cost, max_cost) used by the 'scaled_cost' reward. None means
+                    (400, 1750) for 4 workstations (values of the paper) and (0, initial cost of
+                    the demand) otherwise.
+        invalid_action_reward: reward given when an action would put two P/D points on the same
+                    spot; the action is then cancelled (the layout does not change).
+    """
+
+    def __init__(self, number_of_machines, trial_length, trial_length_max, reward, transportation_demands, render,
+                 canonical=True, reward_bounds=None, invalid_action_reward=-1):
         self.number_of_machines = number_of_machines
         self.trial_length = trial_length
         self.trial_length_max = trial_length_max
         self.reward = reward
         self.transportation_demands = transportation_demands
+        self.canonical = canonical
+        self.reward_bounds = reward_bounds
+        self.invalid_action_reward = invalid_action_reward
 
         self.reset_counter = 0
         self.current_episode = 0
         self.state_visit_counter = {}
+        self.invalid_action_count = 0
 
         self.random_generator = np.random.default_rng(int(time.time()))
         self.machine_shape = ['U_shape'] * self.number_of_machines
@@ -36,6 +58,7 @@ class Env:
         self.pos = {n: d['pos'] for n, d in self.G.nodes(data=True)}
 
         self.sites = self.load_sites()
+        self.geometry = LayoutGeometry(self.sites, self.pos)
         self.nodes_keys = self.generate_node_keys()
         self.action_name_dict = self.generate_action_dict()
 
@@ -45,6 +68,7 @@ class Env:
         self.transport = None
         self.demand = None
         self.df = None
+        self.cost_bounds = None
 
         self.render = render
 
@@ -62,6 +86,11 @@ class Env:
         return [f'{label}{i}' for i in range(1, self.number_of_machines + 1) for label in ('P', 'D')]
 
     def generate_action_dict(self):
+        """
+        Per workstation: 5 shapes + 2 rotations (the rotation keeps the current shape).
+        Then one reimplantation action per unordered pair {m, n}, m != n
+        (N(N-1)/2 actions: 6 for 4 workstations, 36 for 9, 120 for 16).
+        """
         action_dict = {}
         for i in range(1, self.number_of_machines + 1):
             action_dict[len(action_dict)] = f'{i}_U_shape'
@@ -69,10 +98,10 @@ class Env:
             action_dict[len(action_dict)] = f'{i}_L_shape'
             action_dict[len(action_dict)] = f'{i}_L_shape_prime'
             action_dict[len(action_dict)] = f'{i}_I_shape'
-            action_dict[len(action_dict)] = f'{i}_rotation_clockwise_U_shape'
-            action_dict[len(action_dict)] = f'{i}_rotation_counterclockwise_U_shape'
-            if i != 5:
-                action_dict[len(action_dict)] = f'{i}_reimplant_machines_1_to_{i}'
+            action_dict[len(action_dict)] = f'{i}_rotation_clockwise'
+            action_dict[len(action_dict)] = f'{i}_rotation_counterclockwise'
+        for m, n in combinations(range(1, self.number_of_machines + 1), 2):
+            action_dict[len(action_dict)] = f'{m}_reimplant_machines_{m}_to_{n}'
         return action_dict
 
     def generate_initial_state(self):
@@ -80,6 +109,34 @@ class Env:
         machine_in_site = np.arange(0, self.number_of_machines)
         return np.append(np.concatenate((initial_sites, machine_in_site)), 1)
 
+    # ------------------------------------------------------------------ layout <-> state
+    def state_to_layout(self, state):
+        n = self.number_of_machines
+        return [(int(state[n + m]), str(int(state[m])), self.machine_shape[m]) for m in range(n)]
+
+    def layout_to_state(self, layout, template_state):
+        n = self.number_of_machines
+        state = np.array(template_state).copy()
+        for m, (site_index, ref, shape) in enumerate(layout):
+            state[m] = int(ref)
+            state[n + m] = int(site_index)
+            self.machine_shape[m] = shape
+        return state
+
+    def build_graph(self, layout):
+        """Graph of the workshop for a layout, rebuilt from the P/D positions."""
+        G = self.load_graph().copy()
+        G.remove_edges_from(list(G.edges()))
+        for node, p in self.geometry.pd_positions(layout).items():
+            G.nodes[node]['pos'] = [p[0], p[1]]
+        return corrector(G, self.number_of_machines)
+
+    def canonicalize(self, state):
+        layout, _ = self.geometry.canonical_layout(self.state_to_layout(state))
+        state = self.layout_to_state(layout, state)
+        return state, self.build_graph(layout)
+
+    # ------------------------------------------------------------------------- render
     def render_interactive_G(self, current_state, cost):
         plt.ion()
         plotting_interactive(self.G, current_state[:self.number_of_machines], cost)
@@ -107,12 +164,23 @@ class Env:
         file_path = f'transportation_demand/transportation_demand_M{self.number_of_machines}_1.csv'
         self.df = pd.read_csv(file_path, index_col=0)
 
+        self.trial_length = self.trial_length_max
         self.machine_shape = ['U_shape'] * self.number_of_machines
         initial_state = self.generate_initial_state()
         self.G = self.load_graph().copy()
+        if self.canonical:
+            initial_state, self.G = self.canonicalize(initial_state)
+        self.pos = {n: d['pos'] for n, d in self.G.nodes(data=True)}
 
         config_cost = cost(self.G, self.df)
         initial_cost = config_cost.Total_cost()
+        if self.reward_bounds is not None:
+            self.cost_bounds = tuple(self.reward_bounds)
+        elif self.number_of_machines == 4:
+            self.cost_bounds = (400, 1750)
+        else:
+            self.cost_bounds = (0, initial_cost)
+
         initial_position = self.positions()
         if self.render:
             self.render_interactive_G(initial_state, cost=initial_cost)
@@ -120,8 +188,11 @@ class Env:
         return initial_state, initial_cost, initial_position, self.df
 
     def step(self, past_state, index_action, past_cost):
+        previous_G = self.G.copy()
+        previous_shapes = list(self.machine_shape)
+
         Action = action(self.G, self.sites)
-        current_state_array = np.array(past_state.copy())
+        current_state_array = np.array(past_state).copy()
         action_name = self.action_name_dict[index_action]
         machine_number, shape = action_name.split('_', 1)
         machine_number = int(machine_number)
@@ -136,16 +207,33 @@ class Env:
             self.machine_shape[machine_number - 1] = shape
             current_state_array[machine_number - 1] = machine_state
         else:
-            self.G, machine_state, _, _ = Action.rotation(shape, *common_args)
+            # rotation keeps the current shape of the workstation
+            rotation_name = f'{shape}_{self.machine_shape[machine_number - 1]}'
+            self.G, machine_state, _, _ = Action.rotation(rotation_name, *common_args)
             current_state_array[machine_number - 1] = machine_state
 
-        self.G = corrector(self.G, self.number_of_machines)
         self.trial_length -= 1
-
-        config_cost = cost(self.G, self.df)
-        incentive = getattr(config_cost, self.reward)(past_cost)
         done = self.trial_length <= 0
-        new_cost = config_cost.Total_cost()
+
+        layout = self.state_to_layout(current_state_array)
+        if self.geometry.has_overlap(self.geometry.pd_positions(layout)):
+            # Two P/D points would share the same spot: the action is cancelled.
+            self.invalid_action_count += 1
+            self.G = previous_G
+            self.machine_shape = previous_shapes
+            current_state_array = np.array(past_state).copy()
+            new_cost = past_cost
+            incentive = self.invalid_action_reward
+        else:
+            if self.canonical:
+                current_state_array, self.G = self.canonicalize(current_state_array)
+            else:
+                self.G = self.build_graph(layout)
+            config_cost = cost(self.G, self.df)
+            new_cost = config_cost.Total_cost()
+            min_cost, max_cost = self.cost_bounds
+            incentive = getattr(config_cost, self.reward)(past_cost, total_cost=new_cost,
+                                                          min_cost=min_cost, max_cost=max_cost)
 
         if self.render:
             self.render_interactive_G(current_state_array, cost=new_cost)
@@ -170,19 +258,18 @@ class Env:
         self.G, machine_state, _, _ = getattr(Action, self.machine_shape[machine_num - 1])(new_ref_node, machine_num,
                                                                                            site_machine)
         current_state_array[machine_num - 1] = machine_state
-        current_state_array[machine_num + (self.number_of_machines - 1)] = str(site_machine)
+        current_state_array[machine_num + (self.number_of_machines - 1)] = int(site_machine)
 
     def close(self):
         plt.close('all')
         print("Environment closed")
 
 
-# agent = Env(9, 40, 40, 'scaled_cost', [1], render=True)  # Create environment
-#
-# state, init_cost, pos, _ = agent.reset()  # Reset environment
-# for i in range(40):  # Loop 10 times
-#     # act = random.randint(0, 7)
-#     act = random.randint(0, 62)
-#     G, new_state, reward, dn, init_cost, position, _ = agent.step(state, act, init_cost)  # Take step in environment
-#     print(new_state)
-#     state = new_state  # Update state
+if __name__ == '__main__':
+    agent = Env(9, 40, 40, 'scaled_cost', [1], render=False)
+    state, init_cost, pos, _ = agent.reset()
+    for i in range(40):
+        act = random.randint(0, len(agent.action_name_dict) - 1)
+        G, new_state, reward, dn, init_cost, position, _ = agent.step(state, act, init_cost)
+        print(agent.action_name_dict[act], new_state, reward, init_cost)
+        state = new_state

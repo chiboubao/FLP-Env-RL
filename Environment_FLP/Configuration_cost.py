@@ -100,26 +100,32 @@ class cost:
         # print('Total_cost:\n', loaded_cost + empty_cost)
         return empty_cost + loaded_cost
 
-    def inverse_cost(self, old_cost):
-        total_cost = self.Total_cost()
+    # The reward functions accept an already computed `total_cost` so that the (LP based)
+    # cost is computed only once per step.
+    def inverse_cost(self, old_cost, total_cost=None, **kwargs):
+        if total_cost is None:
+            total_cost = self.Total_cost()
         if total_cost <= old_cost:
-            deviation = 1/self.Total_cost()
+            deviation = 1/total_cost
         else:
             deviation = -1
         return deviation
 
-    def difference_cost(self, old_cost):
-        total_cost = self.Total_cost()
+    def difference_cost(self, old_cost, total_cost=None, **kwargs):
+        if total_cost is None:
+            total_cost = self.Total_cost()
         if total_cost <= old_cost:
-            return (old_cost-self.Total_cost())*0.01
+            return (old_cost-total_cost)*0.01
         else:
             deviation = -1
             return deviation
 
-    def scaled_cost(self, old_cost):
-        total_cost = self.Total_cost()
+    def scaled_cost(self, old_cost, total_cost=None, min_cost=400, max_cost=1750, **kwargs):
+        if total_cost is None:
+            total_cost = self.Total_cost()
         if total_cost <= old_cost:
-            reward = (1750-total_cost)/(1750-400)
+            reward = (max_cost-total_cost)/(max_cost-min_cost)
+            reward = min(max(reward, 0.0), 1.0)  # clipped to [0, 1] as described in the README
         else:
             reward = -1
         return reward
