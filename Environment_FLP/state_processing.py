@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+from sklearn.preprocessing import MinMaxScaler
 from tensorflow.python.keras.layers import Dense, Input, concatenate
 from tensorflow.python.keras.models import Model
 

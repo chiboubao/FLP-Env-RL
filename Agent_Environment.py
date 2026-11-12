@@ -25,6 +25,9 @@ class Agent_Environment:
 
         self.num_actions = len(self.agent.action_name_dict)
         self.action_space = gym.spaces.Discrete(self.num_actions)
+        # Real length of the state returned by reset()/step():
+        # 8 GCN features + 4 coordinates per workstation, plus the N x N demand matrix.
+        self.observation_size = 8 * number_of_machines + self.agent.observation_space
 
         # Initialize the GCN model
         self.gcn_model = self.build_gcn_extractor()
@@ -73,6 +76,30 @@ class Agent_Environment:
         normalized_vector = [(x - min_val) / (max_val - min_val) for x in vector]
         return np.array(normalized_vector)
 
+    def machine_graph(self, env_state):
+        """
+        Workstation-level graph: one node per workstation, an edge between two workstations
+        whose sites share a side. It changes with every reimplantation.
+        """
+        geometry = self.agent.geometry
+        n = self.num_machines
+        site_of_machine = [int(env_state[n + m]) for m in range(n)]
+        machine_at_site = {s: m for m, s in enumerate(site_of_machine)}
+        G = nx.Graph()
+        G.add_nodes_from(range(n))
+        for m, s in enumerate(site_of_machine):
+            for t in geometry.adjacent_sites[s]:
+                G.add_edge(m, machine_at_site[t])
+        return G
+
+    def normalize_coordinates(self, pos):
+        """Scale P/D coordinates to [0, 1] using the real extent of the workshop grid."""
+        g = self.agent.geometry
+        coords = np.array(pos, dtype=float).reshape(-1, 2)
+        coords[:, 0] = (coords[:, 0] - g.xmin) / (g.xmax - g.xmin)
+        coords[:, 1] = (coords[:, 1] - g.ymin) / (g.ymax - g.ymin)
+        return coords.reshape(self.num_machines, 4)
+
     def get_state(self, G, pos, demand):
 
         if G.number_of_nodes() != self.num_machines:
@@ -80,16 +107,11 @@ class Agent_Environment:
                 f"Graph has {G.number_of_nodes()} nodes, "
                 f"but num_machines = {self.num_machines}"
             )
-        # 1. Prepare Adjacency
-        adj = nx.to_numpy_array(G)
-        adj = adj + np.eye(self.num_machines)  # Shape: (36, 36)
+        # 1. Prepare Adjacency (self-loops are added inside the GCN normalisation)
+        adj = nx.to_numpy_array(G, nodelist=range(self.num_machines))
 
-        # 2. Normalize and RESHAPE node features
-        # We need to ensure pos_array is (36, 2)
-        pos_array = self.normalize_position_nodes(pos, 0, 6)
-
-        # FIX: Explicitly reshape to (Number of machines, 2 coordinates)
-        pos_features = np.array(pos_array).reshape(self.num_machines, 4)
+        # 2. Normalized node features: (Px, Py, Dx, Dy) per workstation
+        pos_features = self.normalize_coordinates(pos)
 
         demand_array = np.array(demand).flatten()
         processed_demand = self.normalize_position_nodes(demand_array, 0, 40)
@@ -111,19 +133,15 @@ class Agent_Environment:
 
     def reset(self):
         self.env_state, self.init_cost, self.positions, demand = self.agent.reset()
-        # Ensure we have an initial graph structure
-        self.current_G = nx.complete_graph(self.num_machines)
+        self.current_G = self.machine_graph(self.env_state)
         initial_state = self.get_state(self.current_G, self.positions, demand)
         return initial_state, self.init_cost
 
     def step(self, action):
         G, env_next_state, reward, done, next_cost, position, demand = self.agent.step(
             self.env_state, action, self.init_cost)
-        G = nx.Graph()
-        G.add_nodes_from(range(self.num_machines))
-        # optionally: update edges or weights
-        self.current_G = G
-        next_state = self.get_state(G, position, demand)
+        self.current_G = self.machine_graph(env_next_state)
+        next_state = self.get_state(self.current_G, position, demand)
         self.env_state = env_next_state
         self.init_cost = next_cost
 
@@ -133,16 +151,18 @@ class Agent_Environment:
         self.agent.close()
 
 
-# --- Execution ---
-env = Agent_Environment(number_of_machines=36, number_of_steps=10, reward_type='scaled_cost', render=True)
+# --- Execution (only when run directly, not on import) ---
+if __name__ == '__main__':
+    env = Agent_Environment(number_of_machines=9, number_of_steps=10, reward_type='scaled_cost', render=False)
 
-total_reward = 0
-for _ in range(40):  # episodes
-    observation, _ = env.reset()
-    for _ in range(len(env.agent.action_name_dict)):  # steps
-        action = env.action_space.sample()
-        next_observation, reward, done = env.step(action)
-        total_reward += reward
+    total_reward = 0
+    for _ in range(5):  # episodes
+        observation, _ = env.reset()
+        done = False
+        while not done:  # steps
+            action = env.action_space.sample()
+            next_observation, reward, done = env.step(action)
+            total_reward += reward
 
-env.close()
-print("Total reward:", total_reward)
+    env.close()
+    print("Total reward:", total_reward)
