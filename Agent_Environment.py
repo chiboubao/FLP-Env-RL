@@ -25,6 +25,9 @@ class Agent_Environment:
 
         self.num_actions = len(self.agent.action_name_dict)
         self.action_space = gym.spaces.Discrete(self.num_actions)
+        # Real length of the state returned by reset()/step():
+        # 8 GCN features + 4 coordinates per workstation, plus the N x N demand matrix.
+        self.observation_size = 8 * number_of_machines + self.agent.observation_space
 
         # Initialize the GCN model
         self.gcn_model = self.build_gcn_extractor()
