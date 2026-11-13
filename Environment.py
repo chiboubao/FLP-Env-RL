@@ -30,12 +30,15 @@ class Env:
         reward_bounds: (min_cost, max_cost) used by the 'scaled_cost' reward. None means
                     (400, 1750) for 4 workstations (values of the paper) and (0, initial cost of
                     the demand) otherwise.
-        invalid_action_reward: reward given when an action would put two P/D points on the same
-                    spot; the action is then cancelled (the layout does not change).
+        allow_overlap: True (default, as in the paper/thesis): a P/D point may share its spot with a
+                    point of another workstation; two points with the same coordinates are at
+                    distance 0 (e.g. a direct hand-over D1 -> P3).
+                    False: an action creating such an overlap is cancelled (the layout does not
+                    change) and the agent receives `invalid_action_reward`.
     """
 
     def __init__(self, number_of_machines, trial_length, trial_length_max, reward, transportation_demands, render,
-                 canonical=True, reward_bounds=None, invalid_action_reward=-1):
+                 canonical=True, reward_bounds=None, invalid_action_reward=-1, allow_overlap=True):
         self.number_of_machines = number_of_machines
         self.trial_length = trial_length
         self.trial_length_max = trial_length_max
@@ -44,6 +47,7 @@ class Env:
         self.canonical = canonical
         self.reward_bounds = reward_bounds
         self.invalid_action_reward = invalid_action_reward
+        self.allow_overlap = allow_overlap
 
         self.reset_counter = 0
         self.current_episode = 0
@@ -216,7 +220,7 @@ class Env:
         done = self.trial_length <= 0
 
         layout = self.state_to_layout(current_state_array)
-        if self.geometry.has_overlap(self.geometry.pd_positions(layout)):
+        if not self.allow_overlap and self.geometry.has_overlap(self.geometry.pd_positions(layout)):
             # Two P/D points would share the same spot: the action is cancelled.
             self.invalid_action_count += 1
             self.G = previous_G

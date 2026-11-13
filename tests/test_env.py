@@ -20,8 +20,8 @@ from Environment_FLP.Configuration_cost import cost
 SIZES = [4, 9, 16]
 
 
-def make_env(n, canonical=True):
-    return Env(n, 40, 40, 'scaled_cost', [1], render=False, canonical=canonical)
+def make_env(n, canonical=True, allow_overlap=False):
+    return Env(n, 40, 40, 'scaled_cost', [1], render=False, canonical=canonical, allow_overlap=allow_overlap)
 
 
 def random_layout(env, rng):
@@ -115,9 +115,9 @@ def test_initial_cost_unchanged():
     print('initial cost identical with/without canonical mapping: OK')
 
 
-def test_random_rollouts():
+def test_random_rollouts(allow_overlap=False):
     random.seed(1)
-    env = make_env(9)
+    env = make_env(9, allow_overlap=allow_overlap)
     state, c, _, _ = env.reset()
     shapes_seen = set()
     for step in range(120):
@@ -127,13 +127,33 @@ def test_random_rollouts():
         _, state, r, done, c, _, _ = env.step(state, a, c)
         layout = env.state_to_layout(state)
         assert env.geometry.is_canonical(layout)
-        assert not env.geometry.has_overlap(env.geometry.pd_positions(layout))
+        if not allow_overlap:
+            assert not env.geometry.has_overlap(env.geometry.pd_positions(layout))
         assert abs(cost(env.build_graph(layout), env.df).Total_cost() - c) < 1e-6
         assert -1 <= r <= 1
         shapes_seen.update(env.machine_shape)
         if done:
             state, c, _, _ = env.reset()
-    print(f'random rollouts (N=9): OK, invalid (overlap) actions cancelled: {env.invalid_action_count}')
+    print(f'random rollouts (N=9, allow_overlap={allow_overlap}): OK, '
+          f'cancelled actions: {env.invalid_action_count}')
+
+
+def test_shared_spot_is_zero_distance():
+    """Default behaviour: P/D points may share a spot, and the distance between them is 0."""
+    import networkx as nx
+    env = Env(9, 40, 40, 'scaled_cost', [1], render=False, canonical=False)
+    assert env.allow_overlap
+    state, c, _, _ = env.reset()
+    idx = {v: k for k, v in env.action_name_dict.items()}
+    # workstation 1 (site 1) and workstation 2 (site 2) share the aisle between nodes 2 and 7
+    for name in ('1_rotation_clockwise', '2_rotation_counterclockwise', '2_U_shape_prime'):
+        _, state, _, _, c, _, _ = env.step(state, idx[name], c)
+    assert env.invalid_action_count == 0
+    assert list(env.pos['P1']) == list(env.pos['P2']) and list(env.pos['D1']) == list(env.pos['D2'])
+    assert nx.dijkstra_path_length(env.G, 'P1', 'P2', weight='weight') == 0
+    assert nx.dijkstra_path_length(env.G, 'D1', 'D2', weight='weight') == 0
+    assert nx.dijkstra_path_length(env.G, 'P1', 'D2', weight='weight') == 1
+    print('shared P/D spots allowed by default, same coordinates = distance 0: OK')
 
 
 def test_rotation_keeps_shape():
@@ -154,7 +174,9 @@ if __name__ == '__main__':
     test_action_space()
     test_swap_any_pair()
     test_rotation_keeps_shape()
+    test_shared_spot_is_zero_distance()
     test_initial_cost_unchanged()
     test_cost_invariance_and_canonical()
-    test_random_rollouts()
+    test_random_rollouts(allow_overlap=False)
+    test_random_rollouts(allow_overlap=True)
     print('ALL TESTS PASSED')

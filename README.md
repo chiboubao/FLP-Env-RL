@@ -74,7 +74,7 @@ The actions serve as tools for the RL agent to explore the environment, aiming t
 
 The rotation actions keep the current shape of the workstation. The total number of actions is $7N + N(N-1)/2$ (34 for 4 workstations, 99 for 9, 232 for 16).
 
-An action that would place two P/D points on the same spot (two workstations using the same point of a shared aisle) is cancelled: the layout does not change and the agent receives `invalid_action_reward` (default -1).
+Two P/D points of different workstations may share the same spot of an aisle (`allow_overlap=True`, the default, as in the paper): points with the same coordinates are at distance 0, which models a direct hand-over (for example D1 on P3). With `allow_overlap=False`, an action that would create such an overlap is cancelled: the layout does not change and the agent receives `invalid_action_reward` (default -1).
 
 ![Workstation Shapes and Orientations](./Actions.png)
 
