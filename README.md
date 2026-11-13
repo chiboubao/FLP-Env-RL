@@ -83,6 +83,12 @@ Two P/D points of different workstations may share the same spot of an aisle (`a
 Rotating or mirroring the whole workshop (the 8 symmetries of the square grid) maps sites onto sites and keeps every shortest-path distance. Because the demand is attached to workstation IDs, a layout and its 8 images always have the **same cost**. With `canonical=True` (the default), the environment replaces every layout, at reset and after each step, by its canonical representative: the image with the lexicographically smallest encoding. The agent therefore sees only one state per equivalence class, which divides the state space by up to 8. See `Environment_FLP/canonical.py`; `tests/test_env.py` checks that the cost really is identical on all 8 images.
 ---
 
+## Training one PPO agent on several demands
+
+`flp_env.py` is a fast version of the environment (same actions, same cost, about 0.2 ms per step) made for training one policy on many transportation demands, with a reward normalised per demand and a PPO trainer with action masking (`ppo.py`, `train_ppo.py`, `evaluate_ppo.py`). Installation, commands, measured results and known limits are in [RUN_LOCALLY.md](RUN_LOCALLY.md).
+
+---
+
 ## Reward
 
 The reward function guides the agent toward actions that improve configuration. It penalizes choices that increase transportation costs and rewards those that reduce them, as shown in the following function $$R_t(s_t, a_t) $$:

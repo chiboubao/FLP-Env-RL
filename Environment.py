@@ -31,8 +31,7 @@ class Env:
                     (400, 1750) for 4 workstations (values of the paper) and (0, initial cost of
                     the demand) otherwise.
         allow_overlap: True (default, as in the paper/thesis): a P/D point may share its spot with a
-                    point of another workstation; two points with the same coordinates are at
-                    distance 0 (e.g. a direct hand-over D1 -> P3).
+                    point of another workstation (distance 0, e.g. a direct hand-over D1 -> P3).
                     False: an action creating such an overlap is cancelled (the layout does not
                     change) and the agent receives `invalid_action_reward`.
     """
@@ -178,6 +177,7 @@ class Env:
 
         config_cost = cost(self.G, self.df)
         initial_cost = config_cost.Total_cost()
+        self.reference_cost = initial_cost      # scale of the 'improvement_cost' reward
         if self.reward_bounds is not None:
             self.cost_bounds = tuple(self.reward_bounds)
         elif self.number_of_machines == 4:
@@ -237,7 +237,8 @@ class Env:
             new_cost = config_cost.Total_cost()
             min_cost, max_cost = self.cost_bounds
             incentive = getattr(config_cost, self.reward)(past_cost, total_cost=new_cost,
-                                                          min_cost=min_cost, max_cost=max_cost)
+                                                          min_cost=min_cost, max_cost=max_cost,
+                                                          ref_cost=self.reference_cost)
 
         if self.render:
             self.render_interactive_G(current_state_array, cost=new_cost)
