@@ -120,6 +120,17 @@ class cost:
             deviation = -1
             return deviation
 
+    def improvement_cost(self, old_cost, total_cost=None, ref_cost=None, **kwargs):
+        """
+        Recommended reward: cost reduction of the step, relative to the cost of the initial layout
+        for the current demand. Summed over an episode it is the fraction of the initial cost that
+        was removed, so it has the same scale for every demand; a step that degrades the layout
+        costs exactly what it degrades (no fixed -1).
+        """
+        if total_cost is None:
+            total_cost = self.Total_cost()
+        return (old_cost - total_cost) / (ref_cost if ref_cost else old_cost)
+
     def scaled_cost(self, old_cost, total_cost=None, min_cost=400, max_cost=1750, **kwargs):
         if total_cost is None:
             total_cost = self.Total_cost()

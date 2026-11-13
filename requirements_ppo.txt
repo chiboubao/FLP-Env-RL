@@ -1,0 +1,10 @@
+# Minimal dependencies for the PPO pipeline (flp_env.py, ppo.py, train_ppo.py, evaluate_ppo.py).
+# Tested with Python 3.11 and the versions below; TensorFlow and gym are NOT needed for this part.
+numpy==1.24.3
+scipy
+pandas==2.1.1
+networkx==3.3
+matplotlib
+torch==2.2.1
+# only for the original environment (Environment.py) and tests/test_env.py, tests/test_flp_env.py:
+pulp
