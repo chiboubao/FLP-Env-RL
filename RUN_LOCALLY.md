@@ -19,11 +19,13 @@ TensorFlow and gym are not needed for this part (they are only used by `Agent_En
 python tests/test_env.py
 python tests/test_flp_env.py
 python tests/check_canonical.py
+python tests/test_networks.py
 ```
 
 * `test_env.py`: the original environment (`Environment.py`).
 * `test_flp_env.py`: the fast environment gives exactly the same cost and the same transitions as the original one.
 * `check_canonical.py`: exhaustive check of the canonical mapping on the 4-workstation case (about 2 minutes).
+* `test_networks.py`: the weight-sharing network gives the same scores when the workstations are renamed, and trains and reloads.
 
 ## 3. Train
 
@@ -40,8 +42,11 @@ table that compares the agent with a local search and with the true optimum. It 
 Other cases:
 
 ```bash
-# 9 workstations, a new random demand at every episode
-python train_ppo.py --machines 9 --random-demands --steps 1200000 --out runs/m9
+# 9 workstations, a new random demand at every episode (recommended: the weight-sharing network)
+python train_ppo.py --machines 9 --random-demands --network graph --n-envs 64 --n-minibatches 16 --steps 1500000 --threads 4 --out runs/m9_graph
+
+# same with the flat network (faster per step, needs about 8 times more steps, ends lower)
+python train_ppo.py --machines 9 --random-demands --n-envs 64 --n-minibatches 16 --steps 6000000 --out runs/m9
 
 # your own demands: one CSV per demand in a folder (same format as transportation_demand/*.csv)
 python train_ppo.py --machines 9 --demands my_folder --steps 1200000 --out runs/mine
@@ -51,7 +56,16 @@ python train_ppo.py --machines 9 --demands my_folder --random-demands --out runs
 ```
 
 Useful options: `--reward improvement|best|legacy`, `--no-canonical`, `--forbid-overlap`,
-`--no-lookahead`, `--random-start 0.5`, `--episode-length`, `--seed`. `python train_ppo.py -h` lists all.
+`--lookahead total|loaded|none`, `--network mlp|graph`, `--n-envs`, `--n-minibatches`,
+`--threads`, `--random-start 0.5`, `--episode-length`, `--seed`. `python train_ppo.py -h` lists all.
+
+`--network graph` uses a network that shares its weights across workstations (one token per
+workstation, attention guided by the pairwise demand and distance). It has the same 115,574
+parameters for every workshop size. `python tests/test_networks.py` checks it.
+
+The model is saved every 25 updates during training (`model.pt` is overwritten), so a long run
+can be stopped without losing it. With numba installed, the empty-travel solver is compiled and
+training on 9 workstations is about 4 times faster.
 
 ## 4. Evaluate
 
@@ -93,9 +107,21 @@ The reference is the true optimum (enumeration). "Unseen" = perturbed demands T1
 Local search (best single action until stuck) obtains 72%. True optima: T1 80, T2 40, T3 240,
 T4 40, T5 44. A model trained with the command of section 3 found 80, 40, 260, 40, 44.
 
-**9 workstations, trained on random demands only, 1,200,000 steps (25 minutes), one run.**
-Tested on 12 random demands never seen in training; the reference is simulated annealing
-(2 runs of 20,000 iterations).
+**9 workstations, trained on random demands only, three networks.**
+Tested on the 12 demands of `transportation_demand/random_M9_test`, never seen in training; the
+reference (100%) is simulated annealing, 2 runs of 20,000 iterations. Best of 16 is the mean of
+10 evaluation runs, best of 64 the mean of 3.
+
+| Training | Steps | One greedy episode | Best of 16 | Best of 64 |
+|---|---|---|---|---|
+| Flat network, first training (`runs/m9`) | 1.2 million | 74.4% | 92.5% | 95.2% |
+| Flat network, second training, seed 0 (`runs/m9_v2_seed0`) | 6 million | 75.9% | 95.0% | 97.9% |
+| Weight-sharing network, 3 seeds (`runs/m9_graph_seed0..2`) | 1.5 million | 77.8% to 84.9% | 99.2% to 99.4% | 101.0% to 101.8% |
+
+Above 100% means cheaper layouts than the reference. Details, timings and limits are in
+`REPORT_PPO.md`, sections 8b and 8c.
+
+**First 9-workstation training in detail (flat network, 1,200,000 steps, 25 minutes, one run).**
 
 | Method | Mean cost | Score |
 |---|---|---|
@@ -111,8 +137,9 @@ Without the lookahead feature the same training reached only 57.5%.
 
 ## Known limits
 
-* 9 workstations: one greedy episode is only as good as local search; the gain comes from the
-  16 episodes. The training curve was still improving at 1.2 million steps.
+* 9 workstations: one greedy episode reaches 78% to 85% with the weight-sharing network (74% to
+  76% with the flat one, local search 76%); most of the gain still comes from running several
+  episodes and keeping the best layout.
 * Dynamic FLP (restart from the previous layout, `--dynamic`): not solved. A policy trained from
   the initial layout stalls when it starts elsewhere, and one test with `--random-start 0.5`
   (600,000 steps) was worse on the normal case (87.7%) without fixing it. Rearrangement costs are
@@ -122,7 +149,8 @@ Without the lookahead feature the same training reached only 57.5%.
   true optimum of this model is 240.
 * 16 workstations and more were not trained here. The lookahead costs 1.8 ms per step at 16
   workstations; use `--no-lookahead` if it becomes too slow for larger workshops.
-* The 9-workstation numbers come from a single training run.
+* The first 9-workstation training is a single run; the second flat training and the
+  weight-sharing network have three seeds each.
 
 ## What is in the folder
 
@@ -136,7 +164,7 @@ Without the lookahead feature the same training reached only 57.5%.
 | `Environment_FLP/canonical.py` | Geometry and canonical layouts |
 | `Environment_FLP/transport.py` | Exact solver for the empty-travel problem |
 | `Environment.py` | Original environment, kept working; new reward `improvement_cost`, new option `allow_overlap` |
-| `tests/` | The three checks of section 2 |
+| `tests/` | The four checks of section 2 |
 
 ## The reward
 
@@ -156,5 +184,6 @@ The same `improvement` reward is available in the original environment:
 
 Per workstation the P/D coordinates, the matrix of distances P_i -> D_j, the demand matrix, the
 cost share of each flow, the current and best cost, the elapsed time and, with the lookahead
-option, the loaded-cost reduction of each action. The demand is part of the observation: this is
+option, the cost reduction of each action (loaded and empty travel, with empty vehicles kept on
+their current routes). The demand is part of the observation: this is
 what lets one network handle several demands.

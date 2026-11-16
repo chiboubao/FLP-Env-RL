@@ -100,6 +100,51 @@ def test_canonical_tables():
     print('canonical tables == canonical.py, cost invariant on the 8 images: OK')
 
 
+def test_transport_solver():
+    """Pure-Python and compiled transport solvers == scipy's HiGHS, cost and feasibility of the flow."""
+    from scipy.optimize import linprog
+    from Environment_FLP.transport import HAVE_NUMBA, solve_transport, transport_cost
+    rng = np.random.default_rng(0)
+    worst, checked = 0.0, 0
+    for _ in range(1500):
+        nw, nb = rng.integers(1, 10, 2)
+        c = rng.choice([0, .5, 1, 1.5, 2, 3, 4.5, 6, 7.5, 9], size=(nw, nb)).astype(float)
+        m = rng.integers(0, 41, size=(nb, nw)) * (rng.random((nb, nw)) < 0.4)
+        s, d = m.sum(0).astype(float), m.sum(1).astype(float)
+        if not (s > 0).any():
+            continue
+        c, s, d = c[s > 0][:, d > 0], s[s > 0], d[d > 0]
+        a_eq = np.zeros((len(s) + len(d), c.size))
+        for i in range(len(s)):
+            a_eq[i, i * len(d):(i + 1) * len(d)] = 1
+        for j in range(len(d)):
+            a_eq[len(s) + j, j::len(d)] = 1
+        ref = linprog(c.ravel(), A_eq=a_eq, b_eq=np.concatenate((s, d)), bounds=(0, None), method='highs').fun
+        plain = transport_cost(c.tolist(), s.tolist(), d.tolist())
+        fast, flow = solve_transport(c, s, d)
+        assert np.allclose(flow.sum(1), s) and np.allclose(flow.sum(0), d) and (flow >= -1e-9).all()
+        assert abs((flow * c).sum() - fast) < 1e-6
+        worst = max(worst, abs(plain - ref), abs(fast - ref))
+        checked += 1
+    assert worst < 1e-6, worst
+    print(f'transport solver ({"numba" if HAVE_NUMBA else "pure Python, numba not installed"}): '
+          f'{checked} instances, max difference with HiGHS = {worst:.1e}: OK')
+
+
+def test_lookahead_is_a_lower_bound():
+    """The 'total' lookahead never overstates a gain, and is exact for the current layout's flow."""
+    env = FLPEnv(9, demand_sampler=lambda rng: random_demand(9, rng), episode_length=30, seed=5)
+    rng = np.random.default_rng(5)
+    for _ in range(150):
+        bound = env.total_cost_gain() * env.ref_cost
+        exact = np.array([env.cost - env.cost_of(c)[0] for c in env.next_cfgs(env.cfg)])
+        assert np.all(bound <= exact + 1e-6)
+        _, _, done, _ = env.step(int(rng.integers(env.n_actions)))
+        if done:
+            env.reset()
+    print('total-cost lookahead is a lower bound of the exact gain: OK')
+
+
 def test_shared_spot_is_zero_distance():
     """
     Two P/D points with the same coordinates are at distance 0 (and only those), in the fast
@@ -149,6 +194,8 @@ if __name__ == '__main__':
     test_cost_matches_original()
     test_transitions_match_original()
     test_canonical_tables()
+    test_transport_solver()
+    test_lookahead_is_a_lower_bound()
     test_shared_spot_is_zero_distance()
     test_speed()
     print('ALL FAST-ENV TESTS PASSED')

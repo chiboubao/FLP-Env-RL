@@ -52,15 +52,16 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     base = dict(machines=4, random_demands=False, sampler_probability=1.0, canonical=True, allow_overlap=True,
-                random_start=0.0, episode_length=40, legacy_bounds=(400, 1750), hidden=256, lookahead=True)
+                random_start=0.0, episode_length=40, legacy_bounds=(400, 1750), hidden=256, lookahead='loaded')
     settings = {
         'improvement': dict(base, reward='improvement'),
         'best': dict(base, reward='best'),
         'legacy': dict(base, reward='legacy'),
         'improvement-nocanon': dict(base, reward='improvement', canonical=False),
         'best-nocanon': dict(base, reward='best', canonical=False),
-        'improvement-nolookahead': dict(base, reward='improvement', lookahead=False),
-        'legacy-nolookahead': dict(base, reward='legacy', lookahead=False),
+        'improvement-nolookahead': dict(base, reward='improvement', lookahead=None),
+        'improvement-total': dict(base, reward='improvement', lookahead='total'),
+        'legacy-nolookahead': dict(base, reward='legacy', lookahead=None),
     }
     jobs = [(name, settings[name], seed, args.steps) for name in args.settings for seed in range(args.seeds)]
     with Pool(args.workers) as pool:

@@ -26,7 +26,7 @@ from scipy.sparse import lil_matrix
 from scipy.sparse.csgraph import shortest_path
 
 from Environment_FLP.canonical import SHAPES, LayoutGeometry, _key
-from Environment_FLP.transport import transport_cost
+from Environment_FLP.transport import solve_transport
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 N_SHAPES = len(SHAPES)          # 5
@@ -44,10 +44,11 @@ def random_demand(n, rng, n_products=None, route_length=(2, 4), quantity=(1, 40)
     """
     Random demand built like the use case of the paper: a few products, each with a random route
     through distinct workstations and a random quantity; flows are accumulated along the routes.
-    Default number of products: 2 to 4 for 4 workstations, N/2 to N for larger workshops.
+    Default number of products: 2 to 4 for 4 workstations, 2 to N for larger workshops, so that
+    demands with few flows are as common as demands with many.
     """
     if n_products is None:
-        n_products = (2, 4) if n <= 4 else (n // 2, n)
+        n_products = (2, 4) if n <= 4 else (2, n)
     demand = np.zeros((n, n))
     for _ in range(int(rng.integers(n_products[0], n_products[1] + 1))):
         length = int(rng.integers(route_length[0], min(route_length[1], n) + 1))
@@ -61,7 +62,7 @@ def random_demand(n, rng, n_products=None, route_length=(2, 4), quantity=(1, 40)
 class FLPEnv:
     def __init__(self, number_of_machines, demands=None, demand_sampler=None, sampler_probability=1.0,
                  episode_length=40, reward='improvement', canonical=True, random_start=0.0,
-                 legacy_bounds=None, invalid_penalty=0.05, allow_overlap=True, lookahead=True,
+                 legacy_bounds=None, invalid_penalty=0.05, allow_overlap=True, lookahead='total',
                  seed=None):
         """
         demands:          list of N x N arrays (or CSV paths); one is drawn at each reset.
@@ -75,11 +76,17 @@ class FLPEnv:
                           spot with a point of another workstation (distance 0 between them, e.g.
                           a direct hand-over D1 -> P3). False: such layouts are forbidden and the
                           corresponding actions are masked.
-        lookahead:        add to the observation, for every action, the loaded-cost reduction it
-                          would produce (one vectorised table look-up, no extra LP). The policy
-                          adds these values to its action scores, so it starts as a soft greedy
-                          descent and learns when to deviate from it.
+        lookahead:        add to the observation, for every action, the cost reduction it would
+                          produce (one vectorised table look-up, no solver call). The policy adds
+                          these values to its action scores, so it starts as a soft greedy descent
+                          and learns when to deviate from it.
+                          'total'  (default): loaded + empty travel, with the empty vehicles kept
+                                   on their current routes (a lower bound of the true gain);
+                          'loaded' (or True): loaded travel only;
+                          None / False / 'none': no lookahead.
         """
+        lookahead = {True: 'loaded', False: None, 'none': None}.get(lookahead, lookahead)
+        assert lookahead in (None, 'loaded', 'total'), lookahead
         assert reward in REWARDS, reward
         self.n = n = number_of_machines
         self.episode_length = episode_length
@@ -276,6 +283,21 @@ class FLPEnv:
         now = float((self.demand * self._loaded_dist).sum())
         return (now - loaded) / self.ref_cost
 
+    def total_cost_gain(self):
+        """
+        Total-cost reduction of every action, relative to C_ref, with the empty vehicles kept on
+        their current routes. The true new cost can only be lower (the routes may be re-optimised),
+        so this is a lower bound of the true gain: a positive value is a guaranteed improvement.
+        One vectorised table look-up, no solver call.
+        """
+        nxt = self.next_cfgs(self.cfg)
+        p, d = self.p_pt_np[nxt], self.d_pt_np[nxt]
+        new_cost = (self.dist[p[:, :, None], d[:, None, :]] * self.demand[None]).sum(axis=(1, 2))
+        if self._flow is not None:
+            dw, pb = d[:, self._w], p[:, self._b]
+            new_cost = new_cost + (self.dist[dw[:, :, None], pb[:, None, :]] * self._flow[None]).sum(axis=(1, 2))
+        return (self.cost - new_cost) / self.ref_cost
+
     def action_mask(self):
         """Boolean vector of allowed actions (all True when overlaps are allowed)."""
         if self.allow_overlap:
@@ -333,34 +355,49 @@ class FLPEnv:
                 a_eq[nw + j, j::nb] = 1
             self._a_eq = a_eq
             self._b_eq = np.concatenate((col[self._w], row[self._b]))
-            self._supply = col[self._w].tolist()
-            self._need = row[self._b].tolist()
+            self._supply = col[self._w].astype(float)
+            self._need = row[self._b].astype(float)
         self._lp_cache = self._lp_caches.setdefault(demand_id, {}) if demand_id is not None else {}
 
-    def _empty_cost(self, p, d):
+    def _empty_solution(self, p, d):
+        """
+        (empty-travel cost, optimal empty-vehicle flow). flow[w, b] = empty trips from the delivery
+        point of workstation self._w[w] to the pickup point of workstation self._b[b].
+        """
         if not len(self._b) or not len(self._w):
-            return 0.0
+            return 0.0, None
         dw, pb = d[self._w], p[self._b]
         key = dw.tobytes() + pb.tobytes()
-        value = self._lp_cache.get(key)
-        if value is None:
+        solution = self._lp_cache.get(key)
+        if solution is None:
             c = self.dist[dw][:, pb]
             if c.size <= 400:       # small instance: dedicated exact solver, much faster
-                value = transport_cost(c.tolist(), self._supply, self._need)
+                value, flow = solve_transport(c, self._supply, self._need)
             else:
                 res = linprog(c.ravel(), A_eq=self._a_eq, b_eq=self._b_eq, bounds=(0, None), method='highs')
                 if res.status != 0:
                     raise RuntimeError(f'empty-travel LP failed: {res.message}')
-                value = float(res.fun)
-            if len(self._lp_cache) < 2_000_000:
-                self._lp_cache[key] = value
-        return value
+                value, flow = float(res.fun), res.x.reshape(c.shape)
+            solution = (value, flow)
+            if len(self._lp_cache) < 500_000:
+                self._lp_cache[key] = solution
+        return solution
+
+    def _empty_cost(self, p, d):
+        return self._empty_solution(p, d)[0]
 
     def cost_of(self, cfg):
         """Total transportation cost of a layout for the current demand."""
         p, d = self.p_pt_np[cfg], self.d_pt_np[cfg]
         loaded_dist = self.dist[p][:, d]                 # [i, j] = distance P_i -> D_j
         return float((self.demand * loaded_dist).sum()) + self._empty_cost(p, d), loaded_dist
+
+    def _evaluate_current(self):
+        """Cost, loaded distances and empty-vehicle flow of the current layout."""
+        p, d = self.p_pt_np[self.cfg], self.d_pt_np[self.cfg]
+        self._loaded_dist = self.dist[p][:, d]
+        empty, self._flow = self._empty_solution(p, d)
+        self.cost = float((self.demand * self._loaded_dist).sum()) + empty
 
     # --------------------------------------------------------------- gym-like API
     def reset(self, demand=None, demand_id=None, layout_cfg=None):
@@ -396,7 +433,7 @@ class FLPEnv:
             cfg, self.last_symmetry = self.canonicalize(cfg)
         self.cfg = cfg
         self.t = 0
-        self.cost, self._loaded_dist = self.cost_of(cfg)
+        self._evaluate_current()
         self.start_cost = self.best_cost = self.cost
         self.best_cfg = cfg.copy()
         return self._obs()
@@ -424,7 +461,7 @@ class FLPEnv:
                 new, self.last_symmetry = self.canonicalize(new)
             previous_cost, previous_best = self.cost, self.best_cost
             self.cfg = new
-            self.cost, self._loaded_dist = self.cost_of(new)
+            self._evaluate_current()
             if self.cost < self.best_cost - 1e-9:
                 self.best_cost, self.best_cfg = self.cost, new.copy()
             if self.reward_type == 'improvement':
@@ -445,10 +482,15 @@ class FLPEnv:
         """
         [P/D coordinates (4N) | distance P_i->D_j (N^2) | demand (N^2) | cost share of each flow
         (N^2) | current cost, best cost (both / C_ref), elapsed time fraction |
-        with lookahead: scaled loaded-cost gain of each action (n_actions values, always last)]
+        with lookahead: scaled cost gain of each action (n_actions values, always last)]
         """
         flow_cost = self.demand * self._loaded_dist / self.ref_cost
-        gain = (LOOKAHEAD_SCALE * self.loaded_cost_gain(),) if self.lookahead else ()
+        if self.lookahead == 'total':
+            gain = (LOOKAHEAD_SCALE * self.total_cost_gain(),)
+        elif self.lookahead == 'loaded':
+            gain = (LOOKAHEAD_SCALE * self.loaded_cost_gain(),)
+        else:
+            gain = ()
         return np.concatenate((
             self.xy_norm[self.cfg].ravel(),
             (self._loaded_dist / self.dist_scale).ravel(),

@@ -6,5 +6,8 @@ pandas==2.1.1
 networkx==3.3
 matplotlib
 torch==2.2.1
+# optional but recommended: compiles the empty-travel solver, training is about 4 times faster
+# on 9 workstations. Without it the code runs the same, only slower.
+numba==0.58.1
 # only for the original environment (Environment.py) and tests/test_env.py, tests/test_flp_env.py:
 pulp
